@@ -111,6 +111,11 @@ def compute_loss(loss_type, target, output, alpha, gamma, device):
     if loss_type == "soft_msm_dilate":
         return soft_msm_dilate_loss(target, output, alpha, gamma, device)
 
+    if loss_type == "soft_dtw":
+        _, loss_shape, _ = dilate_loss(target, output, alpha, gamma, device)
+        zero = torch.tensor(0.0, device=device)
+        return loss_shape, loss_shape, zero
+
     raise ValueError(f"Unknown loss_type: {loss_type}")
 
 
