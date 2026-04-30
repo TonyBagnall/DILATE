@@ -1,0 +1,17 @@
+.idea/copilot.data.migration.agent.xml
+.idea/DILATE.iml
+.idea/inspectionProfiles/profiles_settings.xml
+.idea/inspectionProfiles/Project_Default.xml
+.idea/misc.xml
+.idea/modules.xml
+.idea/vcs.xml
+data/__pycache__/synthetic_dataset.cpython-38.pyc
+loss/__pycache__/dilate_loss.cpython-38.pyc
+loss/__pycache__/path_soft_dtw.cpython-38.pyc
+loss/__pycache__/soft_dtw.cpython-38.pyc
+loss/__pycache__/soft_msm_dilate_loss.cpython-38.pyc
+loss/soft_msm_torch/__pycache__/__init__.cpython-38.pyc
+loss/soft_msm_torch/__pycache__/soft_msm_torch.cpython-38.pyc
+models/__pycache__/seq2seq.cpython-38.pyc
+results/synthetic_repro.csv
+soft_msm_test.py
