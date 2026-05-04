@@ -115,7 +115,6 @@ def compute_loss(loss_type, target, output, alpha, gamma, device):
         _, loss_shape, _ = dilate_loss(target, output, alpha, gamma, device)
         zero = torch.tensor(0.0, device=device)
         return loss_shape, loss_shape, zero
-
     raise ValueError(f"Unknown loss_type: {loss_type}")
 
 
