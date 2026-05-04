@@ -5,12 +5,12 @@ from loss.soft_msm_torch.soft_msm_torch import (
 import torch
 
 
-def soft_msm_loss(target, outputs, gamma, device):
+def soft_msm_loss(target, outputs, gamma, device, c=1.0):
     # DILATE tensors are (B, T, 1); SoftMSM expects (B, C, T)
     target_bct = target.transpose(1, 2).contiguous()
     outputs_bct = outputs.transpose(1, 2).contiguous()
 
-    loss_shape = SoftMSMLoss(c=1.0, gamma=gamma, reduction="mean")(
+    loss_shape = SoftMSMLoss(c=c, gamma=gamma, reduction="mean")(
         outputs_bct, target_bct
     )
     zero = torch.tensor(0.0, device=outputs.device, dtype=outputs.dtype)

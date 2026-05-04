@@ -1,11 +1,11 @@
 """Reproduce DILATE synthetic forecasting experiments.
 
-Run from the DILATE repo root:
+Run from the DILATE repo root, for example:
 
-    python run_synthetic_repro.py
+    python soft_msm_test.py --losses mse dilate soft_msm soft_msm_dilate
 
-This script compares Seq2Seq models trained with MSE and DILATE on the
-synthetic step-change forecasting problem.
+This script compares Seq2Seq models trained with MSE, DILATE, Soft-MSM,
+and Soft-MSM-DILATE on the synthetic step-change forecasting problem.
 """
 
 import argparse
@@ -21,8 +21,8 @@ from tslearn.metrics import dtw_path
 
 from data.synthetic_dataset import create_synthetic_dataset, SyntheticDataset
 from loss.dilate_loss import dilate_loss
-from models.seq2seq import EncoderRNN, DecoderRNN, Net_GRU
 from loss.soft_msm_dilate_loss import soft_msm_loss, soft_msm_dilate_loss
+from models.seq2seq import EncoderRNN, DecoderRNN, Net_GRU
 
 warnings.simplefilter("ignore")
 
@@ -84,7 +84,7 @@ def make_model(args, device):
     return Net_GRU(encoder, decoder, args.n_output, device).to(device)
 
 
-def compute_loss(loss_type, target, output, alpha, gamma, device):
+def compute_loss(loss_type, target, output, alpha, gamma, c, device):
     """Compute one of the training losses.
 
     Always returns exactly:
@@ -94,7 +94,7 @@ def compute_loss(loss_type, target, output, alpha, gamma, device):
 
     if loss_type == "mse":
         loss = mse(target, output)
-        zero = torch.tensor(0.0, device=device)
+        zero = torch.tensor(0.0, device=device, dtype=output.dtype)
         return loss, loss, zero
 
     if loss_type == "dilate":
@@ -106,15 +106,29 @@ def compute_loss(loss_type, target, output, alpha, gamma, device):
         return result[0], result[1], result[2]
 
     if loss_type == "soft_msm":
-        return soft_msm_loss(target, output, gamma, device)
+        return soft_msm_loss(
+            target,
+            output,
+            gamma,
+            device,
+            c=c,
+        )
 
     if loss_type == "soft_msm_dilate":
-        return soft_msm_dilate_loss(target, output, alpha, gamma, device)
+        return soft_msm_dilate_loss(
+            target,
+            output,
+            alpha,
+            gamma,
+            device,
+            c=c,
+        )
 
     if loss_type == "soft_dtw":
         _, loss_shape, _ = dilate_loss(target, output, alpha, gamma, device)
-        zero = torch.tensor(0.0, device=device)
+        zero = torch.tensor(0.0, device=device, dtype=output.dtype)
         return loss_shape, loss_shape, zero
+
     raise ValueError(f"Unknown loss_type: {loss_type}")
 
 
@@ -181,12 +195,14 @@ def train_one_model(args, loss_type, seed, trainloader, testloader, device):
             target = torch.as_tensor(target, dtype=torch.float32, device=device)
 
             output = net(inputs)
+
             loss, loss_shape, loss_temporal = compute_loss(
                 loss_type,
                 target,
                 output,
                 args.alpha,
                 args.gamma,
+                args.c,
                 device,
             )
 
@@ -214,6 +230,9 @@ def train_one_model(args, loss_type, seed, trainloader, testloader, device):
         {
             "seed": seed,
             "loss_type": loss_type,
+            "alpha": args.alpha,
+            "gamma": args.gamma,
+            "c": args.c,
             "train_loss": final_train_loss,
             "train_shape_loss": final_shape_loss,
             "train_temporal_loss": final_time_loss,
@@ -230,6 +249,9 @@ def write_results(results, output_path):
     fieldnames = [
         "seed",
         "loss_type",
+        "alpha",
+        "gamma",
+        "c",
         "mse",
         "dtw",
         "tdi",
@@ -252,7 +274,10 @@ def summarise(results):
         print(f"\n{loss_type}")
         for metric in ["mse", "dtw", "tdi"]:
             values = np.array([r[metric] for r in subset], dtype=float)
-            print(f"  {metric}: {values.mean():.6f} ± {values.std(ddof=1):.6f}")
+            if len(values) > 1:
+                print(f"  {metric}: {values.mean():.6f} ± {values.std(ddof=1):.6f}")
+            else:
+                print(f"  {metric}: {values.mean():.6f}")
 
 
 def parse_args():
@@ -274,6 +299,7 @@ def parse_args():
 
     parser.add_argument("--gamma", type=float, default=0.01)
     parser.add_argument("--alpha", type=float, default=0.5)
+    parser.add_argument("--c", type=float, default=0.01)
 
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--print-every", type=int, default=50)
@@ -293,7 +319,12 @@ def parse_args():
 def main():
     args = parse_args()
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
     print("Using device:", device)
+    print(f"alpha={args.alpha} gamma={args.gamma} c={args.c}")
+
+    if args.gamma > 0:
+        print(f"c/gamma={args.c / args.gamma:.6f}")
 
     trainloader, testloader = make_loaders(args)
 
