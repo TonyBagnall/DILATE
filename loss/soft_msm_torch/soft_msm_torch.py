@@ -35,9 +35,16 @@ def _softmin3_scalar(
 
 
 def _softmin2(a: torch.Tensor, b: torch.Tensor, gamma: float) -> torch.Tensor:
-    """Stable soft minimum of two tensors."""
-    stack = torch.stack((-a / gamma, -b / gamma), dim=0)
-    return -gamma * torch.logsumexp(stack, dim=0)
+    """Stable soft minimum of two broadcast-compatible tensors.
+
+    torch.stack does not broadcast, so this implementation is required for
+    terms such as a.shape == (B, T-1, 1) and b.shape == (B, T-1, U).
+    """
+    s1 = -a / gamma
+    s2 = -b / gamma
+    m = torch.maximum(s1, s2)
+    z = torch.exp(s1 - m) + torch.exp(s2 - m)
+    return -gamma * (torch.log(z) + m)
 
 
 # -------------------- parameter-free between-ness gate --------------------
