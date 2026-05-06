@@ -879,7 +879,15 @@ def parse_args():
         default="mse",
     )
 
-    parser.add_argument("--ecg-path", default=None)
+    parser.add_argument(
+        "--ecg-path",
+        default=None,
+        help=(
+            "Directory containing ECG5000_TRAIN.ts and ECG5000_TEST.ts, "
+            "or path to ECG5000_TRAIN.ts."
+        ),
+    )
+    parser.add_argument("--ecg-channel", type=int, default=0)
     parser.add_argument("--traffic-path", default=None)
     parser.add_argument("--traffic-column", type=int, default=None)
     parser.add_argument("--traffic-stride", type=int, default=1)
