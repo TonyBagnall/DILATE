@@ -50,7 +50,7 @@ except ImportError:  # pragma: no cover
 from data.synthetic_dataset import create_synthetic_dataset, SyntheticDataset
 from loss.dilate_loss import dilate_loss
 from loss.soft_msm_dilate_loss import soft_msm_loss, soft_msm_dilate_loss
-
+from load_ecg import load_ecg5000_dilate_format
 warnings.simplefilter("ignore")
 
 
@@ -894,8 +894,49 @@ def parse_args():
 # Main
 # -------------------------------------------------------------------------
 
+def quick_test_ecg_loader():
+    """Minimal check that ECG5000 loads and msm_distance works."""
+    train_path = "data/ECG5000/ECG5000_TRAIN.ts"
+    test_path = "data/ECG5000/ECG5000_TEST.ts"
 
+    (
+        x_train_input,
+        x_train_target,
+        x_test_input,
+        x_test_target,
+        y_train,
+        y_test,
+    ) = load_ecg5000_dilate_format(
+        train_path,
+        test_path,
+        n_input=84,
+        n_output=56,
+        channel=0,
+    )
+
+    print("x_train_input:", x_train_input.shape)
+    print("x_train_target:", x_train_target.shape)
+    print("x_test_input:", x_test_input.shape)
+    print("x_test_target:", x_test_target.shape)
+    print("y_train:", y_train.shape)
+    print("y_test:", y_test.shape)
+
+    if msm_distance is None:
+        print("msm_distance is not available")
+        return
+
+    d = msm_distance(
+        x_train_input[0, :, 0],
+        x_train_input[1, :, 0],
+        c=1.0,
+    )
+
+    print("MSM distance between first two train inputs:", d)
 def main() -> None:
+    quick_test_ecg_loader()
+    import sys
+
+    sys.exit(0)
     args = parse_args()
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 

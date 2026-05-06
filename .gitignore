@@ -15,3 +15,5 @@ loss/soft_msm_torch/__pycache__/soft_msm_torch.cpython-38.pyc
 models/__pycache__/seq2seq.cpython-38.pyc
 results/synthetic_repro.csv
 soft_msm_test.py
+/venv38/Lib/site-packages/aeon/base/__pycache__
+/venv38
