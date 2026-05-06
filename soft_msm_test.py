@@ -2,10 +2,17 @@
 
 Run from the DILATE repo root, for example:
 
-    python soft_msm_test.py --losses mse dilate soft_msm soft_msm_dilate
+    python soft_msm_test.py --losses mse soft_dtw dilate soft_msm soft_msm_dilate
 
-This script compares Seq2Seq models trained with MSE, DILATE, Soft-MSM,
-and Soft-MSM-DILATE on the synthetic step-change forecasting problem.
+This script compares Seq2Seq models trained with MSE, Soft-DTW, DILATE,
+Soft-MSM and Soft-MSM-DILATE on the synthetic step-change forecasting
+problem.
+
+The reported metrics are held-out evaluation metrics:
+    MSE, hard DTW, TDI, hard MSM
+
+The raw training losses are written for debugging only and should not be
+compared directly across objectives.
 """
 
 import argparse
@@ -18,6 +25,11 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from tslearn.metrics import dtw_path
+
+try:
+    from aeon.distances import msm_distance
+except ImportError:
+    from aeon.distances.elastic import msm_distance
 
 from data.synthetic_dataset import create_synthetic_dataset, SyntheticDataset
 from loss.dilate_loss import dilate_loss
@@ -85,7 +97,7 @@ def make_model(args, device):
 
 
 def compute_loss(loss_type, target, output, alpha, gamma, c, device):
-    """Compute one of the training losses.
+    """Compute one of the differentiable training objectives.
 
     Always returns exactly:
         loss, loss_shape, loss_temporal
@@ -104,6 +116,11 @@ def compute_loss(loss_type, target, output, alpha, gamma, c, device):
             raise ValueError("dilate_loss should return a tuple.")
 
         return result[0], result[1], result[2]
+
+    if loss_type == "soft_dtw":
+        _, loss_shape, _ = dilate_loss(target, output, alpha, gamma, device)
+        zero = torch.tensor(0.0, device=device, dtype=output.dtype)
+        return loss_shape, loss_shape, zero
 
     if loss_type == "soft_msm":
         return soft_msm_loss(
@@ -124,21 +141,17 @@ def compute_loss(loss_type, target, output, alpha, gamma, c, device):
             c=c,
         )
 
-    if loss_type == "soft_dtw":
-        _, loss_shape, _ = dilate_loss(target, output, alpha, gamma, device)
-        zero = torch.tensor(0.0, device=device, dtype=output.dtype)
-        return loss_shape, loss_shape, zero
-
     raise ValueError(f"Unknown loss_type: {loss_type}")
 
 
-def evaluate_model(net, loader, device):
-    """Evaluate MSE, DTW and TDI on a loader."""
+def evaluate_model(net, loader, device, msm_c):
+    """Evaluate MSE, hard DTW, TDI and hard MSM on a held-out loader."""
     criterion = torch.nn.MSELoss()
 
     losses_mse = []
     losses_dtw = []
     losses_tdi = []
+    losses_msm = []
 
     net.eval()
     with torch.no_grad():
@@ -153,6 +166,7 @@ def evaluate_model(net, loader, device):
             loss_mse = criterion(target, output).item()
             loss_dtw = 0.0
             loss_tdi = 0.0
+            loss_msm = 0.0
 
             for k in range(batch_size):
                 target_k = target[k, :, 0:1].view(-1).detach().cpu().numpy()
@@ -166,20 +180,24 @@ def evaluate_model(net, loader, device):
                     dist += (i - j) * (i - j)
                 loss_tdi += dist / (n_output * n_output)
 
+                loss_msm += msm_distance(target_k, output_k, c=msm_c)
+
             losses_mse.append(loss_mse)
             losses_dtw.append(loss_dtw / batch_size)
             losses_tdi.append(loss_tdi / batch_size)
+            losses_msm.append(loss_msm / batch_size)
 
     net.train()
     return {
         "mse": float(np.mean(losses_mse)),
         "dtw": float(np.mean(losses_dtw)),
         "tdi": float(np.mean(losses_tdi)),
+        "msm": float(np.mean(losses_msm)),
     }
 
 
 def train_one_model(args, loss_type, seed, trainloader, testloader, device):
-    """Train one model and return final metrics."""
+    """Train one model and return final held-out metrics."""
     set_seed(seed)
     net = make_model(args, device)
     optimizer = torch.optim.Adam(net.parameters(), lr=args.learning_rate)
@@ -215,17 +233,19 @@ def train_one_model(args, loss_type, seed, trainloader, testloader, device):
             final_time_loss = float(loss_temporal.detach().cpu())
 
         if args.verbose and (epoch % args.print_every == 0 or epoch == args.epochs - 1):
-            metrics = evaluate_model(net, testloader, device)
+            metrics = evaluate_model(net, testloader, device, args.msm_c_eval)
             print(
                 f"seed={seed} loss={loss_type} epoch={epoch:04d} "
                 f"train_loss={final_train_loss:.6f} "
-                f"shape={final_shape_loss:.6f} temporal={final_time_loss:.6f} "
+                f"shape={final_shape_loss:.6f} "
+                f"temporal={final_time_loss:.6f} "
                 f"eval_mse={metrics['mse']:.6f} "
                 f"eval_dtw={metrics['dtw']:.6f} "
-                f"eval_tdi={metrics['tdi']:.6f}"
+                f"eval_tdi={metrics['tdi']:.6f} "
+                f"eval_msm={metrics['msm']:.6f}"
             )
 
-    metrics = evaluate_model(net, testloader, device)
+    metrics = evaluate_model(net, testloader, device, args.msm_c_eval)
     metrics.update(
         {
             "seed": seed,
@@ -233,6 +253,7 @@ def train_one_model(args, loss_type, seed, trainloader, testloader, device):
             "alpha": args.alpha,
             "gamma": args.gamma,
             "c": args.c,
+            "msm_c_eval": args.msm_c_eval,
             "train_loss": final_train_loss,
             "train_shape_loss": final_shape_loss,
             "train_temporal_loss": final_time_loss,
@@ -252,9 +273,11 @@ def write_results(results, output_path):
         "alpha",
         "gamma",
         "c",
+        "msm_c_eval",
         "mse",
         "dtw",
         "tdi",
+        "msm",
         "train_loss",
         "train_shape_loss",
         "train_temporal_loss",
@@ -272,7 +295,7 @@ def summarise(results):
     for loss_type in sorted({r["loss_type"] for r in results}):
         subset = [r for r in results if r["loss_type"] == loss_type]
         print(f"\n{loss_type}")
-        for metric in ["mse", "dtw", "tdi"]:
+        for metric in ["mse", "dtw", "tdi", "msm"]:
             values = np.array([r[metric] for r in subset], dtype=float)
             if len(values) > 1:
                 print(f"  {metric}: {values.mean():.6f} ± {values.std(ddof=1):.6f}")
@@ -301,6 +324,13 @@ def parse_args():
     parser.add_argument("--alpha", type=float, default=0.5)
     parser.add_argument("--c", type=float, default=0.01)
 
+    parser.add_argument(
+        "--msm-c",
+        type=float,
+        default=None,
+        help="c used for hard MSM evaluation. Defaults to --c.",
+    )
+
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--print-every", type=int, default=50)
     parser.add_argument("--verbose", type=int, default=1)
@@ -318,14 +348,26 @@ def parse_args():
 
 def main():
     args = parse_args()
+    args.msm_c_eval = args.c if args.msm_c is None else args.msm_c
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     print("Using device:", device)
-    print(f"alpha={args.alpha} gamma={args.gamma} c={args.c}")
+    if torch.cuda.is_available():
+        print("CUDA current device:", torch.cuda.current_device())
+        print("CUDA device name:", torch.cuda.get_device_name(torch.cuda.current_device()))
+
+    print(
+        f"alpha={args.alpha} "
+        f"gamma={args.gamma} "
+        f"c={args.c} "
+        f"msm_c_eval={args.msm_c_eval}"
+    )
 
     if args.gamma > 0:
         print(f"c/gamma={args.c / args.gamma:.6f}")
 
+    set_seed(args.seed)
     trainloader, testloader = make_loaders(args)
 
     results = []
