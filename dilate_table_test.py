@@ -231,47 +231,62 @@ def _load_ecg5000_from_aeon() -> tuple[np.ndarray, np.ndarray]:
 
     return X_train, X_test
 
-
 def make_ecg5000_bundle(args) -> DatasetBundle:
-    """Create ECG5000 forecasting dataset.
+    """Create the ECG5000 forecasting dataset from .ts files.
 
     Following the DILATE setup, the first 84 points are used as input and the
     remaining 56 points as target by default.
     """
-    if args.ecg_path is not None:
-        X_train_full, X_test_full = _load_ecg5000_from_path(Path(args.ecg_path))
+    if args.ecg_path is None:
+        ecg_dir = Path("data/ECG5000")
     else:
-        X_train_full, X_test_full = _load_ecg5000_from_aeon()
+        ecg_dir = Path(args.ecg_path)
 
-    n_input = args.n_input
-    n_output = args.n_output
-    total = n_input + n_output
-
-    if X_train_full.shape[1] < total or X_test_full.shape[1] < total:
-        raise ValueError(
-            f"ECG series length is too short for n_input+n_output={total}."
+    if ecg_dir.is_dir():
+        train_path = ecg_dir / "ECG5000_TRAIN.ts"
+        test_path = ecg_dir / "ECG5000_TEST.ts"
+    else:
+        train_path = ecg_dir
+        test_path = train_path.with_name(
+            train_path.name.replace("TRAIN", "TEST").replace("train", "test")
         )
 
-    X_train_full = X_train_full[:, :total]
-    X_test_full = X_test_full[:, :total]
+    if not train_path.exists() or not test_path.exists():
+        raise FileNotFoundError(
+            f"Could not find ECG5000 .ts files:\n"
+            f"  train: {train_path}\n"
+            f"  test:  {test_path}"
+        )
 
-    X_train = X_train_full[:, :n_input]
-    Y_train = X_train_full[:, n_input:total]
-    X_test = X_test_full[:, :n_input]
-    Y_test = X_test_full[:, n_input:total]
+    print(f"Loading ECG5000 train file: {train_path}")
+    print(f"Loading ECG5000 test file:  {test_path}")
 
-    train_dataset = ForecastDataset(X_train, Y_train)
-    test_dataset = ForecastDataset(X_test, Y_test)
+    (
+        x_train_input,
+        x_train_target,
+        x_test_input,
+        x_test_target,
+        y_train,
+        y_test,
+    ) = load_ecg5000_dilate_format(
+        train_path,
+        test_path,
+        n_input=args.n_input,
+        n_output=args.n_output,
+        channel=args.ecg_channel,
+    )
+
+    train_dataset = ForecastDataset(x_train_input, x_train_target, y_train)
+    test_dataset = ForecastDataset(x_test_input, x_test_target, y_test)
     train_dataset, val_dataset = split_train_val(train_dataset, args.val_frac, args.seed)
 
     return DatasetBundle(
         train=train_dataset,
         val=val_dataset,
         test=test_dataset,
-        n_input=n_input,
-        n_output=n_output,
+        n_input=args.n_input,
+        n_output=args.n_output,
     )
-
 
 def _load_univariate_series(path: Path, column: int | None = None) -> np.ndarray:
     """Load a univariate series from .npy, .csv or .txt."""
