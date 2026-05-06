@@ -25,11 +25,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from tslearn.metrics import dtw_path
-
-try:
-    from aeon.distances import msm_distance
-except ImportError:
-    from aeon.distances.elastic import msm_distance
+from aeon.distances import msm_distance
 
 from data.synthetic_dataset import create_synthetic_dataset, SyntheticDataset
 from loss.dilate_loss import dilate_loss
