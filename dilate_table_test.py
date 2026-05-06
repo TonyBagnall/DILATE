@@ -933,10 +933,6 @@ def quick_test_ecg_loader():
 
     print("MSM distance between first two train inputs:", d)
 def main() -> None:
-    quick_test_ecg_loader()
-    import sys
-
-    sys.exit(0)
     args = parse_args()
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
